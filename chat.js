@@ -1,16 +1,16 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { endpoint, sendMessage, type ChatMessage } from "./llama.js";
+import { endpoint, sendMessage } from "./llama.js";
 
-async function main(): Promise<void> {
+async function main() {
   const readline = createInterface({ input: stdin, output: stdout });
-  const messages: ChatMessage[] = [];
+  const messages = [];
 
   stdout.write(`Chat endpoint: ${endpoint}\nType /exit to quit.\n`);
 
   try {
     while (true) {
-      let input: string;
+      let input;
       try {
         input = (await readline.question("you> ")).trim();
       } catch {
@@ -24,7 +24,7 @@ async function main(): Promise<void> {
         continue;
       }
 
-      const conversation: ChatMessage[] = [
+      const conversation = [
         ...messages,
         { role: "user", content: input },
       ];
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
+main().catch((error) => {
   const detail = error instanceof Error ? error.message : String(error);
   console.error(`Unable to start chat: ${detail}`);
   process.exitCode = 1;

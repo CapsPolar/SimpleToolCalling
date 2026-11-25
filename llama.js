@@ -1,16 +1,11 @@
-export type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
 export const endpoint =
   process.env.LLAMA_URL ?? "http://localhost:8080/v1/chat/completions";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
 
-function getTextDelta(data: unknown): string {
+function getTextDelta(data) {
   if (!isRecord(data)) {
     throw new Error("Llama server returned an invalid streaming event.");
   }
@@ -39,10 +34,7 @@ function getTextDelta(data: unknown): string {
   return content;
 }
 
-export async function sendMessage(
-  messages: ChatMessage[],
-  onTextDelta: (delta: string) => void,
-): Promise<string> {
+export async function sendMessage(messages, onTextDelta) {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -62,7 +54,7 @@ export async function sendMessage(
   let buffer = "";
   let reply = "";
 
-  const processLine = (line: string): void => {
+  const processLine = (line) => {
     if (!line.startsWith("data:")) {
       return;
     }
@@ -72,7 +64,7 @@ export async function sendMessage(
       return;
     }
 
-    let event: unknown;
+    let event;
     try {
       event = JSON.parse(data);
     } catch {
