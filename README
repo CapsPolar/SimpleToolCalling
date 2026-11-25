@@ -3,6 +3,6 @@ With this project, you can give a llm a hand to the outside world. no complex pr
 
 ## Chat with a local Llama server
 
-Start a Llama server with its OpenAI-compatible API listening on port 8080, then run `llama.ts` with a TypeScript runner such as `npx tsx llama.ts`. The terminal client keeps the conversation history until you enter `/exit` or `/quit`.
+Start a Llama server with its OpenAI-compatible API listening on port 8080, then run `llama.ts` with a TypeScript runner such as `npx tsx llama.ts`. The terminal client streams replies as they are generated and keeps conversation history until you enter `/exit` or `/quit`.
 
 The default endpoint is `http://localhost:8080/v1/chat/completions`. Set `LLAMA_URL` to override it.
