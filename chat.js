@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { endpoint, sendMessage } from "./llama.js";
+import { tools } from "./tools.js";
+
+const systemPrompt = `You have access to the following tools:
+${tools.map((tool) => JSON.stringify(tool.definition.function, null, 2)).join("\n")}`;
 
 async function main() {
   const readline = createInterface({ input: stdin, output: stdout });
@@ -25,6 +29,7 @@ async function main() {
       }
 
       const conversation = [
+        { role: "system", content: systemPrompt },
         ...messages,
         { role: "user", content: input },
       ];
