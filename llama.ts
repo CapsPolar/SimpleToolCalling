@@ -1,12 +1,9 @@
-import { createInterface } from "node:readline/promises";
-import { stdin, stdout } from "node:process";
-
-type ChatMessage = {
+export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
 
-const endpoint =
+export const endpoint =
   process.env.LLAMA_URL ?? "http://localhost:8080/v1/chat/completions";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -42,7 +39,10 @@ function getTextDelta(data: unknown): string {
   return content;
 }
 
-async function sendMessage(messages: ChatMessage[]): Promise<string> {
+export async function sendMessage(
+  messages: ChatMessage[],
+  onTextDelta: (delta: string) => void,
+): Promise<string> {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -82,7 +82,7 @@ async function sendMessage(messages: ChatMessage[]): Promise<string> {
     const delta = getTextDelta(event);
     if (delta) {
       reply += delta;
-      stdout.write(delta);
+      onTextDelta(delta);
     }
   };
 
@@ -107,54 +107,3 @@ async function sendMessage(messages: ChatMessage[]): Promise<string> {
 
   return reply;
 }
-
-async function main(): Promise<void> {
-  const readline = createInterface({ input: stdin, output: stdout });
-  const messages: ChatMessage[] = [];
-
-  stdout.write(`Chat endpoint: ${endpoint}\nType /exit to quit.\n`);
-
-  try {
-    while (true) {
-      let input: string;
-      try {
-        input = (await readline.question("you> ")).trim();
-      } catch {
-        break;
-      }
-
-      if (input === "/exit" || input === "/quit") {
-        break;
-      }
-      if (!input) {
-        continue;
-      }
-
-      const conversation: ChatMessage[] = [
-        ...messages,
-        { role: "user", content: input },
-      ];
-      try {
-        stdout.write("ai> ");
-        const reply = await sendMessage(conversation);
-        stdout.write("\n");
-        messages.push(
-          { role: "user", content: input },
-          { role: "assistant", content: reply },
-        );
-      } catch (error) {
-        stdout.write("\n");
-        const detail = error instanceof Error ? error.message : String(error);
-        stdout.write(`Error: ${detail}\n`);
-      }
-    }
-  } finally {
-    readline.close();
-  }
-}
-
-main().catch((error: unknown) => {
-  const detail = error instanceof Error ? error.message : String(error);
-  console.error(`Unable to start chat: ${detail}`);
-  process.exitCode = 1;
-});
