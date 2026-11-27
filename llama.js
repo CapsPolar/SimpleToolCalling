@@ -5,7 +5,61 @@ function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
 
-function getTextDelta(data) {
+function appendToolCallDelta(toolCalls, deltas) {
+  if (!Array.isArray(deltas)) {
+    throw new Error("Llama server returned invalid tool calls.");
+  }
+
+  for (const delta of deltas) {
+    if (!isRecord(delta) || !Number.isInteger(delta.index) || delta.index < 0) {
+      throw new Error("Llama server returned an invalid tool call.");
+    }
+
+    let toolCall = toolCalls.get(delta.index);
+    if (!toolCall) {
+      toolCall = {
+        id: "",
+        type: "function",
+        function: { name: "", arguments: "" },
+      };
+      toolCalls.set(delta.index, toolCall);
+    }
+
+    if (delta.id !== undefined) {
+      if (typeof delta.id !== "string") {
+        throw new Error("Llama server returned an invalid tool call ID.");
+      }
+      toolCall.id += delta.id;
+    }
+
+    if (delta.type !== undefined) {
+      if (typeof delta.type !== "string") {
+        throw new Error("Llama server returned an invalid tool call type.");
+      }
+      toolCall.type = delta.type;
+    }
+
+    if (delta.function !== undefined) {
+      if (!isRecord(delta.function)) {
+        throw new Error("Llama server returned an invalid tool function.");
+      }
+      if (delta.function.name !== undefined) {
+        if (typeof delta.function.name !== "string") {
+          throw new Error("Llama server returned an invalid tool name.");
+        }
+        toolCall.function.name += delta.function.name;
+      }
+      if (delta.function.arguments !== undefined) {
+        if (typeof delta.function.arguments !== "string") {
+          throw new Error("Llama server returned invalid tool arguments.");
+        }
+        toolCall.function.arguments += delta.function.arguments;
+      }
+    }
+  }
+}
+
+function getChoiceDelta(data) {
   if (!isRecord(data)) {
     throw new Error("Llama server returned an invalid streaming event.");
   }
@@ -21,24 +75,51 @@ function getTextDelta(data) {
 
   const choice = data.choices[0];
   if (!isRecord(choice) || !isRecord(choice.delta)) {
-    return "";
+    return null;
   }
 
-  const content = choice.delta.content;
-  if (content === undefined || content === null) {
-    return "";
-  }
-  if (typeof content !== "string") {
+  const { content, tool_calls: toolCalls } = choice.delta;
+  if (content !== undefined && content !== null && typeof content !== "string") {
     throw new Error("Llama server returned a non-text response.");
   }
-  return content;
+  return { content: content ?? "", toolCalls };
 }
 
-export async function sendMessage(messages, onTextDelta) {
+function finalizeToolCalls(toolCalls) {
+  return [...toolCalls.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, toolCall]) => {
+      if (!toolCall.id || toolCall.type !== "function" || !toolCall.function.name) {
+        throw new Error("Llama server returned an incomplete tool call.");
+      }
+
+      let args;
+      try {
+        args = JSON.parse(toolCall.function.arguments);
+      } catch {
+        throw new Error(
+          `Llama server returned invalid arguments for tool "${toolCall.function.name}".`,
+        );
+      }
+      if (typeof args !== "object" || args === null || Array.isArray(args)) {
+        throw new Error(
+          `Llama server returned non-object arguments for tool "${toolCall.function.name}".`,
+        );
+      }
+
+      return {
+        id: toolCall.id,
+        name: toolCall.function.name,
+        arguments: args,
+      };
+    });
+}
+
+export async function sendMessage(messages, onTextDelta, requestOptions = {}) {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, stream: true }),
+    body: JSON.stringify({ ...requestOptions, messages, stream: true }),
   });
 
   if (!response.ok) {
@@ -52,7 +133,8 @@ export async function sendMessage(messages, onTextDelta) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let reply = "";
+  let content = "";
+  const toolCalls = new Map();
 
   const processLine = (line) => {
     if (!line.startsWith("data:")) {
@@ -71,10 +153,16 @@ export async function sendMessage(messages, onTextDelta) {
       throw new Error("Llama server returned an invalid streaming event.");
     }
 
-    const delta = getTextDelta(event);
-    if (delta) {
-      reply += delta;
-      onTextDelta(delta);
+    const delta = getChoiceDelta(event);
+    if (!delta) {
+      return;
+    }
+    if (delta.content) {
+      content += delta.content;
+      onTextDelta(delta.content);
+    }
+    if (delta.toolCalls !== undefined) {
+      appendToolCallDelta(toolCalls, delta.toolCalls);
     }
   };
 
@@ -97,5 +185,5 @@ export async function sendMessage(messages, onTextDelta) {
     }
   }
 
-  return reply;
+  return { content, toolCalls: finalizeToolCalls(toolCalls) };
 }
