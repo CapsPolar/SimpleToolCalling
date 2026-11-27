@@ -192,10 +192,6 @@ export class ToolSupportingModelChatWithTools extends ChatWithTools {
   }
 }
 
-export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {}
-
-export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {}
-
 export class CompatibilityChatWithTools extends ChatWithTools {
   getSystemPrompt() {
     const toolDescriptions = this.getToolDefinitions()
