@@ -5,4 +5,4 @@ Tiny LLM can actually work as agent, they just can't handle the bloat of MCP sta
 Have node js in your system and just run `npm start` at the root. Make sure you already started Ollama or Llama.cpp servers as its the AI engine
 
 ### Configuration
-Well the code itself is the configuration, the codebase is very light that you can understand in minutes. want to add a tool, add to tools.js as its example shows. Currently this supports Ollama and Llama.cpp endpoints you can configure which to use in index.js
+The code itself is the configuration. To add a tool, update `tools.js`. Choose Ollama or Llama.cpp in `index.js`; their default endpoints and model are set in `api.js`.

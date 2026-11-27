@@ -211,15 +211,12 @@ export class OpenAICompatibleAPI {
 
 export class LlamaAPI extends OpenAICompatibleAPI {
   constructor() {
-    super(process.env.LLAMA_URL ?? "http://localhost:8080/v1/chat/completions");
+    super("http://localhost:8080/v1/chat/completions");
   }
 }
 
 export class OllamaAPI extends OpenAICompatibleAPI {
   constructor() {
-    super(
-      process.env.OLLAMA_URL ?? "http://localhost:11434/v1/chat/completions",
-      process.env.OLLAMA_MODEL ?? "ministral-3:3b",
-    );
+    super("http://localhost:11434/v1/chat/completions", "ministral-3:3b");
   }
 }
