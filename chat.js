@@ -3,7 +3,19 @@ import { stdin, stdout } from "node:process";
 import { endpoint, sendMessage } from "./llama.js";
 import { tools } from "./tools.js";
 
-class Chat {
+function imageContent(name, content, result) {
+  return [
+    { type: "text", text: `Tool result (${name}):\n${content}` },
+    {
+      type: "image_url",
+      image_url: {
+        url: `data:${result.mimeType};base64,${result.data}`,
+      },
+    },
+  ];
+}
+
+class ChatWithTools {
   constructor() {
     this.toolMap = new Map(
       tools.map((tool) => [tool.definition.function.name, tool]),
@@ -23,7 +35,7 @@ class Chat {
   }
 
   getToolCalls() {
-    throw new Error("Chat subclasses must implement getToolCalls().");
+    throw new Error("Chat-with-tools subclasses must implement getToolCalls().");
   }
 
   createConversation(messages, turnMessages) {
@@ -46,6 +58,10 @@ class Chat {
         .map(({ name, content }) => `Tool result (${name}):\n${content}`)
         .join("\n\n"),
     });
+  }
+
+  getFollowUpMessages() {
+    return [];
   }
 
   async executeToolCall(call) {
@@ -94,6 +110,7 @@ class Chat {
 
         const turnMessages = [{ role: "user", content: input }];
         try {
+          let followUpMessages = [];
           while (true) {
             const conversation = this.createConversation(messages, turnMessages);
             stdout.write("ai> ");
@@ -107,6 +124,11 @@ class Chat {
             const toolCalls = this.getToolCalls(reply);
             turnMessages.push(this.createAssistantMessage(reply, toolCalls));
             if (toolCalls.length === 0) {
+              if (followUpMessages.length > 0) {
+                turnMessages.push(...followUpMessages);
+                followUpMessages = [];
+                continue;
+              }
               break;
             }
 
@@ -123,6 +145,7 @@ class Chat {
               });
             }
             this.appendToolResults(turnMessages, results);
+            followUpMessages.push(...this.getFollowUpMessages(results));
           }
 
           messages.push(...turnMessages);
@@ -138,7 +161,7 @@ class Chat {
   }
 }
 
-export class ToolSupportingModelChat extends Chat {
+export class ToolSupportingModelChatWithTools extends ChatWithTools {
   getRequestOptions() {
     return { tools: this.getToolDefinitions(), tool_choice: "auto" };
   }
@@ -167,38 +190,54 @@ export class ToolSupportingModelChat extends Chat {
   }
 
   appendToolResults(turnMessages, results) {
-    const images = [];
-
-    for (const { name, content, call, result } of results) {
+    for (const { content, call } of results) {
       turnMessages.push({
         role: "tool",
         tool_call_id: call.id,
         content,
       });
-
-      if (result?.type === "image") {
-        images.push({ name, content, result });
-      }
     }
+  }
 
-    for (const { name, content, result } of images) {
-      turnMessages.push({
+  getFollowUpMessages(results) {
+    const imageResults = results.filter(
+      ({ result }) => result?.type === "image",
+    );
+    if (imageResults.length === 0) return [];
+
+    return [
+      {
         role: "user",
-        content: [
-          { type: "text", text: `Tool result (${name}):\n${content}` },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:${result.mimeType};base64,${result.data}`,
-            },
-          },
-        ],
-      });
-    }
+        content: imageResults.flatMap(({ name, content, result }) =>
+          imageContent(name, content, result),
+        ),
+      },
+    ];
   }
 }
 
-export class CompatibilityChat extends Chat {
+export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {
+  appendToolResults(turnMessages, results) {
+    for (const { name, content, call, result } of results) {
+      turnMessages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          result?.type === "image"
+            ? imageContent(name, content, result)
+            : content,
+      });
+    }
+  }
+
+  getFollowUpMessages() {
+    return [];
+  }
+}
+
+export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {}
+
+export class CompatibilityChatWithTools extends ChatWithTools {
   getSystemPrompt() {
     const toolDescriptions = this.getToolDefinitions()
       .map((definition) => JSON.stringify(definition.function, null, 2))
@@ -292,20 +331,17 @@ When calling a tool, include JSON like:
   }
 
   appendToolResults(turnMessages, results) {
-    const textResults = [];
+    const imageResults = results.filter(
+      ({ result }) => result?.type === "image",
+    );
+    if (imageResults.length === 0) {
+      super.appendToolResults(turnMessages, results);
+      return;
+    }
 
-    const appendTextResults = () => {
-      if (textResults.length > 0) {
-        super.appendToolResults(turnMessages, textResults.splice(0));
-      }
-    };
-
-    for (const { name, content, result } of results) {
-      if (result?.type === "image") {
-        appendTextResults();
-        turnMessages.push({
-          role: "user",
-          content: [
+    const content = results.flatMap(({ name, content, result }) =>
+      result?.type === "image"
+        ? [
             { type: "text", text: `Tool result (${name}):\n${content}` },
             {
               type: "image_url",
@@ -313,18 +349,14 @@ When calling a tool, include JSON like:
                 url: `data:${result.mimeType};base64,${result.data}`,
               },
             },
-          ],
-        });
-      } else {
-        textResults.push({ name, content });
-      }
-    }
-
-    appendTextResults();
+          ]
+        : [{ type: "text", text: `Tool result (${name}):\n${content}` }],
+    );
+    turnMessages.push({ role: "user", content });
   }
 }
 
-new CompatibilityChat().run().catch((error) => {
+new CompatibilityChatWithTools().run().catch((error) => {
   const detail = error instanceof Error ? error.message : String(error);
   console.error(`Unable to start chat: ${detail}`);
   process.exitCode = 1;
