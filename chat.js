@@ -266,7 +266,7 @@ export class CompatibilityChatWithTools extends ChatWithTools {
 ${toolDescriptions}
 
 When calling a tool, include JSON like:
-{"name": "tool_name", "arguments": { ... }}`;
+{"name": "tool_name", "parameters": { ... }}`;
   }
 
   escapeRegex(str) {
@@ -334,7 +334,7 @@ When calling a tool, include JSON like:
     const jsonCalls = this.parseToolCallsWithPattern(
       reply,
       new RegExp(
-        `\\{\\s*"name"\\s*:\\s*"(${names})"\\s*,\\s*"arguments"\\s*:\\s*\\{`,
+        `\\{\\s*"name"\\s*:\\s*"(${names})"\\s*,\\s*"(?:arguments|parameters)"\\s*:\\s*\\{`,
         "g",
       ),
     );
