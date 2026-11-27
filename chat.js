@@ -62,6 +62,9 @@ class Chat {
   }
 
   formatToolResult(result) {
+    if (result?.type === "image") {
+      return `Loaded image from ${result.filePath} (${result.mimeType}).`;
+    }
     return typeof result === "string"
       ? result
       : (JSON.stringify(result, null, 2) ?? String(result));
@@ -109,11 +112,15 @@ class Chat {
 
             const results = [];
             for (const call of toolCalls) {
-              const result = this.formatToolResult(
-                await this.executeToolCall(call),
-              );
-              stdout.write(`tool(${call.name})> ${result}\n`);
-              results.push({ name: call.name, content: result, call });
+              const toolResult = await this.executeToolCall(call);
+              const content = this.formatToolResult(toolResult);
+              stdout.write(`tool(${call.name})> ${content}\n`);
+              results.push({
+                name: call.name,
+                content,
+                result: toolResult,
+                call,
+              });
             }
             this.appendToolResults(turnMessages, results);
           }
@@ -160,11 +167,32 @@ export class ToolSupportingModelChat extends Chat {
   }
 
   appendToolResults(turnMessages, results) {
-    for (const { content, call } of results) {
+    const images = [];
+
+    for (const { name, content, call, result } of results) {
       turnMessages.push({
         role: "tool",
         tool_call_id: call.id,
         content,
+      });
+
+      if (result?.type === "image") {
+        images.push({ name, content, result });
+      }
+    }
+
+    for (const { name, content, result } of images) {
+      turnMessages.push({
+        role: "user",
+        content: [
+          { type: "text", text: `Tool result (${name}):\n${content}` },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${result.mimeType};base64,${result.data}`,
+            },
+          },
+        ],
       });
     }
   }
@@ -261,6 +289,38 @@ When calling a tool, include JSON like:
 
   getToolCalls(reply) {
     return this.parseCompatibilityToolCalls(reply.content);
+  }
+
+  appendToolResults(turnMessages, results) {
+    const textResults = [];
+
+    const appendTextResults = () => {
+      if (textResults.length > 0) {
+        super.appendToolResults(turnMessages, textResults.splice(0));
+      }
+    };
+
+    for (const { name, content, result } of results) {
+      if (result?.type === "image") {
+        appendTextResults();
+        turnMessages.push({
+          role: "user",
+          content: [
+            { type: "text", text: `Tool result (${name}):\n${content}` },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${result.mimeType};base64,${result.data}`,
+              },
+            },
+          ],
+        });
+      } else {
+        textResults.push({ name, content });
+      }
+    }
+
+    appendTextResults();
   }
 }
 

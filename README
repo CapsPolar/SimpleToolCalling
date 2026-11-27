@@ -9,7 +9,9 @@ Start a Llama server with its OpenAI-compatible API listening on port 8080, then
 
 `chat.js` is the entry point and starts `CompatibilityChat` directly. Its compatibility-specific prompt and response parsing live in that class; shared conversation and tool-execution behavior lives in the parent `Chat` class.
 
-`CompatibilityChat` includes tool definitions and calling instructions in the system prompt, parses tool calls from the response text, and sends results as `user` messages. `ToolSupportingModelChat` sends tool definitions to llama.cpp's built-in tool-calling API, does not add tool instructions to the system prompt, and sends tool results as `tool` messages. To switch the entry point to `ToolSupportingModelChat`, change the class instantiated at the bottom of `chat.js`.
+`CompatibilityChat` includes tool definitions and calling instructions in the system prompt, parses tool calls from the response text, and sends results as `user` messages. `ToolSupportingModelChat` sends tool definitions to llama.cpp's built-in tool-calling API, does not add tool instructions to the system prompt, and sends tool results as `tool` messages. In either mode, `load_image` also sends a separate `user` message containing the image. To switch the entry point to `ToolSupportingModelChat`, change the class instantiated at the bottom of `chat.js`.
+
+The `load_image` tool reads PNG, JPEG, GIF, or WebP files from disk. In `CompatibilityChat`, the image is sent in a separate user message using the OpenAI-compatible `image_url` content format; the connected model must support vision. Ollama's native chat API also attaches images to user messages (using its `images` field), rather than returning them as tool results.
 
 Both classes are exported from `chat.js`. Importing `chat.js` starts the configured chat entry point.
 
