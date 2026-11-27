@@ -1,6 +1,5 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { LlamaAPI, OllamaAPI } from "./api.js";
 import { tools } from "./tools.js";
 
 function imageContent(name, content, result) {
@@ -15,11 +14,16 @@ function imageContent(name, content, result) {
   ];
 }
 
-class ChatWithTools {
-  constructor(api = new LlamaAPI()) {
+export class ChatWithTools {
+  constructor(api, availableTools = tools) {
+    if (!api || typeof api.sendMessage !== "function") {
+      throw new Error("ChatWithTools requires an API with sendMessage().");
+    }
+
     this.api = api;
+    this.tools = availableTools;
     this.toolMap = new Map(
-      tools.map((tool) => [tool.definition.function.name, tool]),
+      availableTools.map((tool) => [tool.definition.function.name, tool]),
     );
   }
 
@@ -44,7 +48,7 @@ class ChatWithTools {
   }
 
   getToolDefinitions() {
-    return tools.map((tool) => tool.definition);
+    return this.tools.map((tool) => tool.definition);
   }
 
   getToolCalls() {
@@ -233,10 +237,6 @@ export class ToolSupportingModelChatWithTools extends ChatWithTools {
 }
 
 export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {
-  constructor() {
-    super(new LlamaAPI());
-  }
-
   appendToolResults(turnMessages, results) {
     for (const { name, content, call, result } of results) {
       turnMessages.push({
@@ -255,11 +255,7 @@ export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {
   }
 }
 
-export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {
-  constructor() {
-    super(new OllamaAPI());
-  }
-}
+export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {}
 
 export class CompatibilityChatWithTools extends ChatWithTools {
   getSystemPrompt() {
@@ -379,9 +375,3 @@ When calling a tool, include JSON like:
     turnMessages.push({ role: "user", content });
   }
 }
-
-new CompatibilityChatWithTools().run().catch((error) => {
-  const detail = error instanceof Error ? error.message : String(error);
-  console.error(`Unable to start chat: ${detail}`);
-  process.exitCode = 1;
-});

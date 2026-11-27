@@ -112,7 +112,7 @@ function finalizeToolCalls(toolCalls) {
     });
 }
 
-export async function sendOpenAICompatibleMessage(
+async function sendOpenAICompatibleMessage(
   endpoint,
   messages,
   onTextDelta,
