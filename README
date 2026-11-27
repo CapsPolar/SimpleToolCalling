@@ -3,7 +3,7 @@ With this project, you can give a llm a hand to the outside world. no complex pr
 
 ## Chat with a local Llama server
 
-Start a Llama server with its OpenAI-compatible API listening on port 8080, then run `npm start` or `node chat.js`. `chat.js` handles the terminal conversation, while `llama.js` handles API requests and streams replies as they are generated. When the model calls a tool, the chat class runs it, sends the result back to the model, and continues until the model responds without another tool call. Conversation history is kept until you enter `/exit` or `/quit`.
+Start a llama.cpp server with its OpenAI-compatible API listening on port 8080, then run `npm start` or `node chat.js`. `chat.js` handles the terminal conversation, while `api.js` provides `LlamaAPI` and `OllamaAPI` clients for their respective OpenAI-compatible endpoints. When the model calls a tool, the chat class runs it, sends the result back to the model, and continues until the model responds without another tool call. Conversation history is kept until you enter `/exit` or `/quit`.
 
 ## Tool-calling classes
 
@@ -15,4 +15,4 @@ The `load_image` tool reads PNG, JPEG, GIF, or WebP files from disk. Image messa
 
 The chat-with-tools classes are exported from `chat.js`. Importing `chat.js` starts the configured entry point.
 
-The default endpoint is `http://localhost:8080/v1/chat/completions`. Set `LLAMA_URL` to override it.
+The llama.cpp endpoint defaults to `http://localhost:8080/v1/chat/completions`; set `LLAMA_URL` to override it. Ollama uses `http://localhost:11434/v1/chat/completions` by default, includes `ministral-3:3b` as the request model, and can be configured with `OLLAMA_URL` and `OLLAMA_MODEL`.

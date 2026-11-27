@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { endpoint, sendMessage } from "./llama.js";
+import { LlamaAPI, OllamaAPI } from "./api.js";
 import { tools } from "./tools.js";
 
 function imageContent(name, content, result) {
@@ -16,10 +16,23 @@ function imageContent(name, content, result) {
 }
 
 class ChatWithTools {
-  constructor() {
+  constructor(api = new LlamaAPI()) {
+    this.api = api;
     this.toolMap = new Map(
       tools.map((tool) => [tool.definition.function.name, tool]),
     );
+  }
+
+  getEndpoint() {
+    return this.api.endpoint;
+  }
+
+  getModel() {
+    return this.api.model;
+  }
+
+  sendMessage(messages, onTextDelta, requestOptions) {
+    return this.api.sendMessage(messages, onTextDelta, requestOptions);
   }
 
   getSystemPrompt() {
@@ -90,7 +103,10 @@ class ChatWithTools {
     const readline = createInterface({ input: stdin, output: stdout });
     const messages = [];
 
-    stdout.write(`Chat endpoint: ${endpoint}\nType /exit to quit.\n`);
+    stdout.write(`Chat endpoint: ${this.getEndpoint()}\nType /exit to quit.\n`);
+    if (this.getModel()) {
+      stdout.write(`Chat model: ${this.getModel()}\n`);
+    }
 
     try {
       while (true) {
@@ -114,7 +130,7 @@ class ChatWithTools {
           while (true) {
             const conversation = this.createConversation(messages, turnMessages);
             stdout.write("ai> ");
-            const reply = await sendMessage(
+            const reply = await this.sendMessage(
               conversation,
               (delta) => stdout.write(delta),
               this.getRequestOptions(),
@@ -217,6 +233,10 @@ export class ToolSupportingModelChatWithTools extends ChatWithTools {
 }
 
 export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {
+  constructor() {
+    super(new LlamaAPI());
+  }
+
   appendToolResults(turnMessages, results) {
     for (const { name, content, call, result } of results) {
       turnMessages.push({
@@ -235,7 +255,11 @@ export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {
   }
 }
 
-export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {}
+export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {
+  constructor() {
+    super(new OllamaAPI());
+  }
+}
 
 export class CompatibilityChatWithTools extends ChatWithTools {
   getSystemPrompt() {

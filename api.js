@@ -1,18 +1,15 @@
-export const endpoint =
-  process.env.LLAMA_URL ?? "http://localhost:8080/v1/chat/completions";
-
 function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
 
 function appendToolCallDelta(toolCalls, deltas) {
   if (!Array.isArray(deltas)) {
-    throw new Error("Llama server returned invalid tool calls.");
+    throw new Error("Chat server returned invalid tool calls.");
   }
 
   for (const delta of deltas) {
     if (!isRecord(delta) || !Number.isInteger(delta.index) || delta.index < 0) {
-      throw new Error("Llama server returned an invalid tool call.");
+      throw new Error("Chat server returned an invalid tool call.");
     }
 
     let toolCall = toolCalls.get(delta.index);
@@ -27,31 +24,31 @@ function appendToolCallDelta(toolCalls, deltas) {
 
     if (delta.id !== undefined) {
       if (typeof delta.id !== "string") {
-        throw new Error("Llama server returned an invalid tool call ID.");
+        throw new Error("Chat server returned an invalid tool call ID.");
       }
       toolCall.id += delta.id;
     }
 
     if (delta.type !== undefined) {
       if (typeof delta.type !== "string") {
-        throw new Error("Llama server returned an invalid tool call type.");
+        throw new Error("Chat server returned an invalid tool call type.");
       }
       toolCall.type = delta.type;
     }
 
     if (delta.function !== undefined) {
       if (!isRecord(delta.function)) {
-        throw new Error("Llama server returned an invalid tool function.");
+        throw new Error("Chat server returned an invalid tool function.");
       }
       if (delta.function.name !== undefined) {
         if (typeof delta.function.name !== "string") {
-          throw new Error("Llama server returned an invalid tool name.");
+          throw new Error("Chat server returned an invalid tool name.");
         }
         toolCall.function.name += delta.function.name;
       }
       if (delta.function.arguments !== undefined) {
         if (typeof delta.function.arguments !== "string") {
-          throw new Error("Llama server returned invalid tool arguments.");
+          throw new Error("Chat server returned invalid tool arguments.");
         }
         toolCall.function.arguments += delta.function.arguments;
       }
@@ -61,16 +58,16 @@ function appendToolCallDelta(toolCalls, deltas) {
 
 function getChoiceDelta(data) {
   if (!isRecord(data)) {
-    throw new Error("Llama server returned an invalid streaming event.");
+    throw new Error("Chat server returned an invalid streaming event.");
   }
   if (isRecord(data.error)) {
     const message = data.error.message;
     throw new Error(
-      typeof message === "string" ? message : "Llama server returned an error.",
+      typeof message === "string" ? message : "Chat server returned an error.",
     );
   }
   if (!Array.isArray(data.choices)) {
-    throw new Error("Llama server event did not contain chat choices.");
+    throw new Error("Chat server event did not contain chat choices.");
   }
 
   const choice = data.choices[0];
@@ -80,7 +77,7 @@ function getChoiceDelta(data) {
 
   const { content, tool_calls: toolCalls } = choice.delta;
   if (content !== undefined && content !== null && typeof content !== "string") {
-    throw new Error("Llama server returned a non-text response.");
+    throw new Error("Chat server returned a non-text response.");
   }
   return { content: content ?? "", toolCalls };
 }
@@ -90,7 +87,7 @@ function finalizeToolCalls(toolCalls) {
     .sort(([left], [right]) => left - right)
     .map(([, toolCall]) => {
       if (!toolCall.id || toolCall.type !== "function" || !toolCall.function.name) {
-        throw new Error("Llama server returned an incomplete tool call.");
+        throw new Error("Chat server returned an incomplete tool call.");
       }
 
       let args;
@@ -98,12 +95,12 @@ function finalizeToolCalls(toolCalls) {
         args = JSON.parse(toolCall.function.arguments);
       } catch {
         throw new Error(
-          `Llama server returned invalid arguments for tool "${toolCall.function.name}".`,
+          `Chat server returned invalid arguments for tool "${toolCall.function.name}".`,
         );
       }
       if (typeof args !== "object" || args === null || Array.isArray(args)) {
         throw new Error(
-          `Llama server returned non-object arguments for tool "${toolCall.function.name}".`,
+          `Chat server returned non-object arguments for tool "${toolCall.function.name}".`,
         );
       }
 
@@ -115,7 +112,12 @@ function finalizeToolCalls(toolCalls) {
     });
 }
 
-export async function sendMessage(messages, onTextDelta, requestOptions = {}) {
+export async function sendOpenAICompatibleMessage(
+  endpoint,
+  messages,
+  onTextDelta,
+  requestOptions = {},
+) {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -124,10 +126,10 @@ export async function sendMessage(messages, onTextDelta, requestOptions = {}) {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Llama server returned ${response.status}: ${body}`);
+    throw new Error(`Chat server returned ${response.status}: ${body}`);
   }
   if (!response.body) {
-    throw new Error("Llama server did not provide a response stream.");
+    throw new Error("Chat server did not provide a response stream.");
   }
 
   const reader = response.body.getReader();
@@ -150,7 +152,7 @@ export async function sendMessage(messages, onTextDelta, requestOptions = {}) {
     try {
       event = JSON.parse(data);
     } catch {
-      throw new Error("Llama server returned an invalid streaming event.");
+      throw new Error("Chat server returned an invalid streaming event.");
     }
 
     const delta = getChoiceDelta(event);
@@ -186,4 +188,40 @@ export async function sendMessage(messages, onTextDelta, requestOptions = {}) {
   }
 
   return { content, toolCalls: finalizeToolCalls(toolCalls) };
+}
+
+class OpenAICompatibleAPI {
+  constructor(endpoint, model = null) {
+    this.endpoint = endpoint;
+    this.model = model;
+  }
+
+  sendMessage(messages, onTextDelta, requestOptions = {}) {
+    return sendOpenAICompatibleMessage(
+      this.endpoint,
+      messages,
+      onTextDelta,
+      {
+        ...requestOptions,
+        ...(this.model ? { model: this.model } : {}),
+      },
+    );
+  }
+}
+
+export class LlamaAPI extends OpenAICompatibleAPI {
+  constructor() {
+    super(
+      process.env.LLAMA_URL ?? "http://localhost:8080/v1/chat/completions",
+    );
+  }
+}
+
+export class OllamaAPI extends OpenAICompatibleAPI {
+  constructor() {
+    super(
+      process.env.OLLAMA_URL ?? "http://localhost:11434/v1/chat/completions",
+      process.env.OLLAMA_MODEL ?? "ministral-3:3b",
+    );
+  }
 }
