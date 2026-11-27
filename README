@@ -7,16 +7,10 @@ Start a Llama server with its OpenAI-compatible API listening on port 8080, then
 
 ## Tool-calling classes
 
-`ToolSupportingModelChat` is used by default. It sends tool definitions to llama.cpp's built-in tool-calling API, does not add tool instructions to the system prompt, and sends tool results as `tool` messages.
+`chat.js` is the entry point and starts `CompatibilityChat` directly. Its compatibility-specific prompt and response parsing live in that class; shared conversation and tool-execution behavior lives in the parent `Chat` class.
 
-To use `CompatibilityChat`, which includes tool definitions and calling instructions in the system prompt, parses tool calls from the response text, and sends results as `user` messages, instantiate that class instead:
+`CompatibilityChat` includes tool definitions and calling instructions in the system prompt, parses tool calls from the response text, and sends results as `user` messages. `ToolSupportingModelChat` sends tool definitions to llama.cpp's built-in tool-calling API, does not add tool instructions to the system prompt, and sends tool results as `tool` messages. To switch the entry point to `ToolSupportingModelChat`, change the class instantiated at the bottom of `chat.js`.
 
-```js
-import { CompatibilityChat } from "./chat.js";
-
-await new CompatibilityChat().run();
-```
-
-Both classes are exported from `chat.js`.
+Both classes are exported from `chat.js`. Importing `chat.js` starts the configured chat entry point.
 
 The default endpoint is `http://localhost:8080/v1/chat/completions`. Set `LLAMA_URL` to override it.

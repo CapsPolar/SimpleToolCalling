@@ -1,143 +1,25 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { pathToFileURL } from "node:url";
 import { endpoint, sendMessage } from "./llama.js";
 import { tools } from "./tools.js";
 
-const toolMap = new Map(
-  tools.map((tool) => [tool.definition.function.name, tool]),
-);
-
-const compatibilitySystemPrompt = `You have access to the following tools:
-${tools.map((tool) => JSON.stringify(tool.definition.function, null, 2)).join("\n")}
-
-When calling a tool, include JSON like:
-{"name": "tool_name", "arguments": { ... }}`;
-
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function readBalancedObject(text, startIndex) {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = startIndex; i < text.length; i++) {
-    const ch = text[i];
-
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = true;
-    } else if (ch === "{") {
-      depth++;
-    } else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        return { json: text.slice(startIndex, i + 1), endIndex: i + 1 };
-      }
-    }
-  }
-
-  return null;
-}
-
-function parseJsonToolCalls(reply, names) {
-  const prefixRegex = new RegExp(
-    `\\{\\s*"name"\\s*:\\s*"(${names})"\\s*,\\s*"arguments"\\s*:\\s*\\{`,
-    "g",
-  );
-
-  const calls = [];
-  let match;
-
-  while ((match = prefixRegex.exec(reply)) !== null) {
-    const name = match[1];
-    const argsStart = match.index + match[0].length - 1;
-    const block = readBalancedObject(reply, argsStart);
-    if (!block) continue;
-
-    try {
-      const args = JSON.parse(block.json);
-      calls.push({ name, arguments: args });
-      prefixRegex.lastIndex = block.endIndex;
-    } catch {
-      // Keep scanning if this block wasn't valid JSON.
-    }
-  }
-
-  return calls;
-}
-
-function parseTagToolCalls(reply, names) {
-  const tagRegex = new RegExp(
-    `\\[TOOL_CALLS\\]\\s*(${names})\\s*\\[ARGS\\]\\s*\\{`,
-    "g",
-  );
-
-  const calls = [];
-  let match;
-
-  while ((match = tagRegex.exec(reply)) !== null) {
-    const name = match[1];
-    const argsStart = match.index + match[0].length - 1;
-    const block = readBalancedObject(reply, argsStart);
-    if (!block) continue;
-
-    try {
-      const args = JSON.parse(block.json);
-      calls.push({ name, arguments: args });
-      tagRegex.lastIndex = block.endIndex;
-    } catch {
-      // Keep scanning if this block wasn't valid JSON.
-    }
-  }
-
-  return calls;
-}
-
-function parseCompatibilityToolCalls(reply) {
-  const names = [...toolMap.keys()].map(escapeRegex).join("|");
-  if (!names) return [];
-
-  return [
-    ...parseJsonToolCalls(reply, names),
-    ...parseTagToolCalls(reply, names),
-  ];
-}
-
-async function executeToolCall(call) {
-  const tool = toolMap.get(call.name);
-  if (!tool) {
-    throw new Error(`Unknown tool "${call.name}"`);
-  }
-
-  const fn = tool.executor ?? tool.execute ?? tool.handler ?? tool.run;
-  if (typeof fn !== "function") {
-    throw new Error(`Tool "${call.name}" has no executable function`);
-  }
-  return await fn(call.arguments);
-}
-
-function formatToolResult(result) {
-  return typeof result === "string"
-    ? result
-    : (JSON.stringify(result, null, 2) ?? String(result));
-}
-
 class Chat {
+  constructor() {
+    this.toolMap = new Map(
+      tools.map((tool) => [tool.definition.function.name, tool]),
+    );
+  }
+
   getSystemPrompt() {
     return null;
   }
 
   getRequestOptions() {
     return {};
+  }
+
+  getToolDefinitions() {
+    return tools.map((tool) => tool.definition);
   }
 
   getToolCalls() {
@@ -164,6 +46,25 @@ class Chat {
         .map(({ name, content }) => `Tool result (${name}):\n${content}`)
         .join("\n\n"),
     });
+  }
+
+  async executeToolCall(call) {
+    const tool = this.toolMap.get(call.name);
+    if (!tool) {
+      throw new Error(`Unknown tool "${call.name}"`);
+    }
+
+    const fn = tool.executor ?? tool.execute ?? tool.handler ?? tool.run;
+    if (typeof fn !== "function") {
+      throw new Error(`Tool "${call.name}" has no executable function`);
+    }
+    return await fn(call.arguments);
+  }
+
+  formatToolResult(result) {
+    return typeof result === "string"
+      ? result
+      : (JSON.stringify(result, null, 2) ?? String(result));
   }
 
   async run() {
@@ -208,7 +109,9 @@ class Chat {
 
             const results = [];
             for (const call of toolCalls) {
-              const result = formatToolResult(await executeToolCall(call));
+              const result = this.formatToolResult(
+                await this.executeToolCall(call),
+              );
               stdout.write(`tool(${call.name})> ${result}\n`);
               results.push({ name: call.name, content: result, call });
             }
@@ -230,7 +133,7 @@ class Chat {
 
 export class ToolSupportingModelChat extends Chat {
   getRequestOptions() {
-    return { tools: tools.map((tool) => tool.definition), tool_choice: "auto" };
+    return { tools: this.getToolDefinitions(), tool_choice: "auto" };
   }
 
   getToolCalls(reply) {
@@ -269,21 +172,100 @@ export class ToolSupportingModelChat extends Chat {
 
 export class CompatibilityChat extends Chat {
   getSystemPrompt() {
-    return compatibilitySystemPrompt;
+    const toolDescriptions = this.getToolDefinitions()
+      .map((definition) => JSON.stringify(definition.function, null, 2))
+      .join("\n");
+    return `You have access to the following tools:
+${toolDescriptions}
+
+When calling a tool, include JSON like:
+{"name": "tool_name", "arguments": { ... }}`;
+  }
+
+  escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  readBalancedObject(text, startIndex) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = startIndex; i < text.length; i++) {
+      const ch = text[i];
+
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          return { json: text.slice(startIndex, i + 1), endIndex: i + 1 };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  parseToolCallsWithPattern(reply, pattern) {
+    const calls = [];
+    let match;
+
+    while ((match = pattern.exec(reply)) !== null) {
+      const name = match[1];
+      const argsStart = match.index + match[0].length - 1;
+      const block = this.readBalancedObject(reply, argsStart);
+      if (!block) continue;
+
+      try {
+        const args = JSON.parse(block.json);
+        calls.push({ name, arguments: args });
+        pattern.lastIndex = block.endIndex;
+      } catch {
+        // Keep scanning if this block wasn't valid JSON.
+      }
+    }
+
+    return calls;
+  }
+
+  parseCompatibilityToolCalls(reply) {
+    const names = [...this.toolMap.keys()]
+      .map((name) => this.escapeRegex(name))
+      .join("|");
+    if (!names) return [];
+
+    const jsonCalls = this.parseToolCallsWithPattern(
+      reply,
+      new RegExp(
+        `\\{\\s*"name"\\s*:\\s*"(${names})"\\s*,\\s*"arguments"\\s*:\\s*\\{`,
+        "g",
+      ),
+    );
+    const tagCalls = this.parseToolCallsWithPattern(
+      reply,
+      new RegExp(`\\[TOOL_CALLS\\]\\s*(${names})\\s*\\[ARGS\\]\\s*\\{`, "g"),
+    );
+
+    return [...jsonCalls, ...tagCalls];
   }
 
   getToolCalls(reply) {
-    return parseCompatibilityToolCalls(reply.content);
+    return this.parseCompatibilityToolCalls(reply.content);
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  new CompatibilityChat().run().catch((error) => {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error(`Unable to start chat: ${detail}`);
-    process.exitCode = 1;
-  });
-}
+new CompatibilityChat().run().catch((error) => {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`Unable to start chat: ${detail}`);
+  process.exitCode = 1;
+});
