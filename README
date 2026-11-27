@@ -1,16 +1,8 @@
-## What you can do
-With this project, you can give a llm a hand to the outside world. no complex protocols and standards, just simple thing a model actually needs to use the hand
+## Simple Tool Calling
+Tiny LLM can actually work as agent, they just can't handle the bloat of MCP standards. with SimpleToolCalling, you turn any model into an agent, even tool calling not supported models
 
-## Chat with a local Llama server
+### Quick start
+Have node js in your system and just run `npm start` at the root. Make sure you already started Ollama or Llama.cpp servers as its the AI engine
 
-Start a llama.cpp server with its OpenAI-compatible API listening on port 8080, then run `npm start` or `node index.js`. `api.js` and `chat.js` export API and chat-with-tools classes without starting the app. `index.js` connects `LlamaAPI`, `LlamaChatWithTools`, and the tool list to run the default chat. When the model calls a tool, the chat class runs it, sends the result back to the model, and continues until the model responds without another tool call. Conversation history is kept until you enter `/exit` or `/quit`.
-
-## Tool-calling classes
-
-`ChatWithTools`, `CompatibilityChatWithTools`, `ToolSupportingModelChatWithTools`, `LlamaChatWithTools`, and `OllamaChatWithTools` are exported from `chat.js`. The API classes are exported from `api.js`. To select a different combination, change the imports and constructor calls in `index.js`, for example `new OllamaChatWithTools(new OllamaAPI(), tools)`.
-
-`CompatibilityChatWithTools` includes tool definitions and calling instructions in the system prompt, parses tool calls from the response text, and sends results as `user` messages. `ToolSupportingModelChatWithTools` sends tool definitions using the OpenAI-compatible native tool-calling API and sends tool results as `tool` messages. `LlamaChatWithTools` sends loaded images as image content in the corresponding tool result. `OllamaChatWithTools` sends tool results first, then sends loaded images in a separate `user` message after the assistant responds to the tool result.
-
-The `load_image` tool reads PNG, JPEG, GIF, or WebP files from disk. Image messages use the OpenAI-compatible `image_url` content format, and the connected model must support vision. `OllamaChatWithTools` sends the image as a user message; the llama.cpp `LlamaChatWithTools` class includes it in the tool result.
-
-The llama.cpp endpoint defaults to `http://localhost:8080/v1/chat/completions`; set `LLAMA_URL` to override it. Ollama uses `http://localhost:11434/v1/chat/completions` by default, includes `ministral-3:3b` as the request model, and can be configured with `OLLAMA_URL` and `OLLAMA_MODEL`.
+### Configuration
+Well the code itself is the configuration, the codebase is very light that you can understand in minutes. want to add a tool, add to tools.js as its example shows. Currently this supports Ollama and Llama.cpp endpoints you can configure which to use in index.js

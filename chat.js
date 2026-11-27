@@ -2,18 +2,6 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { tools } from "./tools.js";
 
-function imageContent(name, content, result) {
-  return [
-    { type: "text", text: `Tool result (${name}):\n${content}` },
-    {
-      type: "image_url",
-      image_url: {
-        url: `data:${result.mimeType};base64,${result.data}`,
-      },
-    },
-  ];
-}
-
 export class ChatWithTools {
   constructor(api, availableTools = tools) {
     if (!api || typeof api.sendMessage !== "function") {
@@ -77,10 +65,6 @@ export class ChatWithTools {
     });
   }
 
-  getFollowUpMessages() {
-    return [];
-  }
-
   async executeToolCall(call) {
     const tool = this.toolMap.get(call.name);
     if (!tool) {
@@ -95,9 +79,6 @@ export class ChatWithTools {
   }
 
   formatToolResult(result) {
-    if (result?.type === "image") {
-      return `Loaded image from ${result.filePath} (${result.mimeType}).`;
-    }
     return typeof result === "string"
       ? result
       : (JSON.stringify(result, null, 2) ?? String(result));
@@ -127,10 +108,8 @@ export class ChatWithTools {
         if (!input) {
           continue;
         }
-
         const turnMessages = [{ role: "user", content: input }];
         try {
-          let followUpMessages = [];
           while (true) {
             const conversation = this.createConversation(messages, turnMessages);
             stdout.write("ai> ");
@@ -144,11 +123,6 @@ export class ChatWithTools {
             const toolCalls = this.getToolCalls(reply);
             turnMessages.push(this.createAssistantMessage(reply, toolCalls));
             if (toolCalls.length === 0) {
-              if (followUpMessages.length > 0) {
-                turnMessages.push(...followUpMessages);
-                followUpMessages = [];
-                continue;
-              }
               break;
             }
 
@@ -160,12 +134,10 @@ export class ChatWithTools {
               results.push({
                 name: call.name,
                 content,
-                result: toolResult,
                 call,
               });
             }
             this.appendToolResults(turnMessages, results);
-            followUpMessages.push(...this.getFollowUpMessages(results));
           }
 
           messages.push(...turnMessages);
@@ -218,42 +190,9 @@ export class ToolSupportingModelChatWithTools extends ChatWithTools {
       });
     }
   }
-
-  getFollowUpMessages(results) {
-    const imageResults = results.filter(
-      ({ result }) => result?.type === "image",
-    );
-    if (imageResults.length === 0) return [];
-
-    return [
-      {
-        role: "user",
-        content: imageResults.flatMap(({ name, content, result }) =>
-          imageContent(name, content, result),
-        ),
-      },
-    ];
-  }
 }
 
-export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {
-  appendToolResults(turnMessages, results) {
-    for (const { name, content, call, result } of results) {
-      turnMessages.push({
-        role: "tool",
-        tool_call_id: call.id,
-        content:
-          result?.type === "image"
-            ? imageContent(name, content, result)
-            : content,
-      });
-    }
-  }
-
-  getFollowUpMessages() {
-    return [];
-  }
-}
+export class LlamaChatWithTools extends ToolSupportingModelChatWithTools {}
 
 export class OllamaChatWithTools extends ToolSupportingModelChatWithTools {}
 
@@ -348,30 +287,5 @@ When calling a tool, include JSON like:
 
   getToolCalls(reply) {
     return this.parseCompatibilityToolCalls(reply.content);
-  }
-
-  appendToolResults(turnMessages, results) {
-    const imageResults = results.filter(
-      ({ result }) => result?.type === "image",
-    );
-    if (imageResults.length === 0) {
-      super.appendToolResults(turnMessages, results);
-      return;
-    }
-
-    const content = results.flatMap(({ name, content, result }) =>
-      result?.type === "image"
-        ? [
-            { type: "text", text: `Tool result (${name}):\n${content}` },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${result.mimeType};base64,${result.data}`,
-              },
-            },
-          ]
-        : [{ type: "text", text: `Tool result (${name}):\n${content}` }],
-    );
-    turnMessages.push({ role: "user", content });
   }
 }
